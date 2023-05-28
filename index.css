@@ -1,0 +1,61 @@
+html {
+    height: 100%;
+}
+
+body {
+    margin: 0;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: #f0f9ff;
+    font-family: 'Noto Sans TC', sans-serif;
+}
+
+canvas {
+    background-color: #1f2937;
+    max-height: 100%;
+    max-width: 100%;
+}
+
+p {
+    margin: 0;
+    padding: 0;
+}
+
+#wrapper {
+    height: 90%;
+    display: flex;
+    gap: 2rem;
+    padding: 1rem;
+    box-sizing: border-box;
+}
+
+#wrapper > div {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+}
+
+.preview-box canvas {
+    margin-top: 0.25rem;
+}
+
+#playfield {
+    margin-top: 0.25rem;
+    height: 100%;
+}
+
+#status {
+    display: flex;
+    flex-direction: column;
+}
+
+.status-box {
+    margin-top: 0.25rem;
+    font-size: 1.5rem;
+    color: white;
+    background-color: #1f2937;
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.25rem;
+}
