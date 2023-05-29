@@ -112,6 +112,32 @@ class Playfield {
     }
 
     /**
+     * Draw the "Game Over" screen.
+     */
+    drawGameOver() {
+        const backgroundWidth = 300;
+        const backgroundHeight = 80;
+        const backgroundX = (canvas.width - backgroundWidth) / 2;
+        const backgroundY = (canvas.height - backgroundHeight) / 2;
+
+        // Draw the background
+        this.#ctx.fillStyle = "#f9fafb";
+        this.#ctx.fillRect(backgroundX, backgroundY, backgroundWidth, backgroundHeight);
+
+        // Set the text properties
+        this.#ctx.font = `30px "Noto Sans TC"`;
+        this.#ctx.fillStyle = '#111827';
+        this.#ctx.textAlign = "center";
+        this.#ctx.textBaseline = "middle";
+
+        // Draw the "Game Over" text
+        const text = "Game Over";
+        const textX = canvas.width / 2;
+        const textY = canvas.height / 2;
+        this.#ctx.fillText(text, textX, textY);
+    }
+
+    /**
      * Fill a cell with the given color.
      *
      * @param {number} x - The x coordinate of the cell.
@@ -595,6 +621,8 @@ class TetrisGame {
 
         if (!this.#over) {
             requestAnimationFrame(this.#frame.bind(this));
+        } else {
+            this.#playfield.drawGameOver();
         }
     }
 
