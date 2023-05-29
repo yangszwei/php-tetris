@@ -30,9 +30,9 @@
             </div>
             <div id="status">
                 <p>Score</p>
-                <p id="score" class="status-box">00000</p>
+                <p id="score" class="status-box"></p>
                 <p style="margin-top: 1rem;">Level</p>
-                <p id="level" class="status-box">00000</p>
+                <p id="level" class="status-box"></p>
             </div>
         </div>
     </div>

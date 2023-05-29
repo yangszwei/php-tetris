@@ -202,8 +202,24 @@ class TetrominoBag {
 }
 
 class TetrisGame {
+    /** Score values for clearing lines, the index is the number of lines cleared. */
+    static #scores = [0, 40, 100, 300, 1200];
+
+    /** Gravity values for each level, the index is the level. */
+    static #gravity = [
+        0, 0.01667, 0.01875, 0.02143, 0.03, 0.0325, 0.0375,
+        0.0425, 0.0475, 0.05625, 0.0625, 0.06875, 0.075, 0.0875,
+        0.1, 0.125, 0.15, 0.175, 0.2, 0.25, 0.3
+    ]
+
     /** @type {HTMLCanvasElement} */
     #canvas;
+
+    /** @type {HTMLParagraphElement} */
+    #levelMonitor;
+
+    /** @type {HTMLParagraphElement} */
+    #scoreMonitor;
 
     /** @type {Playfield} */
     #playfield;
@@ -220,6 +236,15 @@ class TetrisGame {
     /** The timestamp of the last tetromino drop. */
     #lastDropTime = 0;
 
+    /** The number of lines cleared. */
+    #linesCleared = 0;
+
+    /** The current level. */
+    #level = 1;
+
+    /** The current score. */
+    #score = 0;
+
     /** Whether the game is updated. The playfield should re-render when this is true. */
     #update = true;
 
@@ -228,15 +253,21 @@ class TetrisGame {
 
     /**
      * @param {HTMLCanvasElement} canvas
+     * @param {HTMLParagraphElement} level
+     * @param {HTMLParagraphElement} score
      */
-    constructor(canvas) {
+    constructor(canvas, level, score) {
         this.#canvas = canvas;
+        this.#levelMonitor = level;
+        this.#scoreMonitor = score;
         this.#playfield = new Playfield(canvas);
     }
 
     start() {
         document.addEventListener("keyup", this.keyup.bind(this));
         document.addEventListener("keydown", this.keydown.bind(this));
+        this.#levelMonitor.textContent = this.#level.toString();
+        this.#scoreMonitor.textContent = this.#score.toString();
         this.#currentTetromino = this.#getNextTetromino();
 
         // Start the render loop.
@@ -265,7 +296,7 @@ class TetrisGame {
     keyup(event) {
         switch (event.key) {
             case "ArrowDown":
-                this.#dropInterval = 1000;
+                this.#dropInterval = TetrisGame.#calculateDropInterval(this.#level);
                 break;
         }
     }
@@ -369,15 +400,21 @@ class TetrisGame {
         return this.#moveTetromino(0, 1);
     }
 
-    /** Clear all full lines from the playfield. */
+    /**
+     * Clear all full lines from the playfield.
+     *
+     * @returns {number} The number of lines cleared.
+     * */
     #clearFullLines() {
+        let linesCleared = 0;
         for (let y = 0; y < this.#playfield.height; y++) {
             if (this.#playfield.get(y).some(cell => cell === 0)) {
                 continue;
             }
-
             this.#playfield.remove(y);
+            linesCleared++;
         }
+        return linesCleared;
     }
 
     /** Start rendering the game to the playfield. */
@@ -392,7 +429,15 @@ class TetrisGame {
                 this.#currentTetromino = this.#getNextTetromino();
                 this.#checkGameOver();
             }
-            this.#clearFullLines();
+
+            const linesCleared = this.#clearFullLines();
+            if (linesCleared > 0) {
+                this.#linesCleared += linesCleared;
+                this.#score += TetrisGame.#scores[linesCleared];
+                this.#level = TetrisGame.#calculateLevel(this.#linesCleared);
+                this.#update = true;
+            }
+
             this.#lastDropTime = now;
         }
 
@@ -404,6 +449,8 @@ class TetrisGame {
                 this.#currentTetromino.y,
                 this.#currentTetromino.drawable,
             );
+            this.#scoreMonitor.textContent = this.#score.toString();
+            this.#levelMonitor.textContent = this.#level.toString();
             this.#update = false;
         }
 
@@ -411,9 +458,31 @@ class TetrisGame {
             requestAnimationFrame(this.#frame.bind(this));
         }
     }
+
+    /**
+     * Calculate the current level.
+     *
+     * @param {number} linesCleared - The number of lines cleared.
+     * @returns {number} The current level.
+     * */
+    static #calculateLevel(linesCleared) {
+        return (linesCleared / 10 + 1) | 0;
+    }
+
+    /**
+     * Calculate the drop interval for the current level.
+     *
+     * @param {number} level - The current level.
+     * @returns {number} The drop interval in milliseconds.
+     */
+    static #calculateDropInterval(level) {
+        return (1000 / (this.#gravity[Math.min(level, 20)] * 60)) | 0;
+    }
 }
 
 const canvas = document.getElementById('playfield');
-const game = new TetrisGame(canvas);
+const level = document.getElementById('level');
+const score = document.getElementById('score');
+const game = new TetrisGame(canvas, level, score);
 
 game.start();
