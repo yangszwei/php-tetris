@@ -7,9 +7,6 @@
  */
 
 class Playfield {
-    /** Tetromino colors in order of I, J, L, O, S, T, Z. */
-    static #colors = ['#00CCFF', '#0044FF', '#FF8800', '#FFCC00', '#00FF44', '#AA00FF', '#FF0044'];
-
     /** @type {CanvasRenderingContext2D} */
     #ctx;
 
@@ -124,7 +121,7 @@ class Playfield {
     fill(x, y, color) {
         const pos = (n) => n * this.#cellSize + this.#strokeWidth;
         const size = this.#cellSize - this.#strokeWidth * 2;
-        this.#ctx.fillStyle = Playfield.#colors[color - 1];
+        this.#ctx.fillStyle = TetrominoBag.colors[color - 1];
         this.#ctx.fillRect(pos(x), pos(y), size, size);
     }
 
@@ -134,7 +131,86 @@ class Playfield {
     }
 }
 
+class TetrominoView {
+    /** @type {CanvasRenderingContext2D} */
+    #ctx;
+
+    /**
+     * @param {HTMLCanvasElement} canvas
+     */
+    constructor(canvas) {
+        this.#ctx = canvas.getContext('2d');
+    }
+
+    /**
+     * Draw a drawable in the center of the canvas.
+     *
+     * @param {Drawable} drawable - The drawable to draw.
+     */
+    draw(drawable) {
+        this.#ctx.clearRect(0, 0, this.#ctx.canvas.width, this.#ctx.canvas.height);
+
+        // Calculate the shape dimensions without 0 columns and rows
+        let minX = drawable[0].length;
+        let minY = drawable.length;
+        let maxX = 0;
+        let maxY = 0;
+
+        // Find the bounds of the drawable by non-zero values
+        for (let dy = 0; dy < drawable.length; dy++) {
+            for (let dx = 0; dx < drawable[dy].length; dx++) {
+                if (drawable[dy][dx] !== 0) {
+                    minX = Math.min(minX, dx);
+                    minY = Math.min(minY, dy);
+                    maxX = Math.max(maxX, dx);
+                    maxY = Math.max(maxY, dy);
+                }
+            }
+        }
+
+        // Remove the 0 columns
+        let trimmedDrawable = drawable.map(row => row.slice(minX, maxX + 1));
+
+        // Remove the 0 rows
+        const trimmedHeight = maxY - minY + 1;
+        trimmedDrawable = trimmedDrawable.slice(minY, minY + trimmedHeight);
+
+        // Calculate the centering offsets
+        const canvasSize = 120;
+        let cellSize = 30;
+        let strokeWidth = 1;
+
+        let x = Math.floor((canvasSize - trimmedDrawable[0].length * cellSize) / 2);
+        let y = Math.floor((canvasSize - trimmedDrawable.length * cellSize) / 2);
+
+        // Check if the shape is vertically or horizontally 4
+        if (trimmedDrawable.length === 4 || trimmedDrawable[0].length === 4) {
+            const shrinkSize = 90;
+            cellSize = shrinkSize / Math.max(trimmedDrawable.length, trimmedDrawable[0].length);
+            const shrinkOffset = (canvasSize - shrinkSize) / 2;
+            x = shrinkOffset + Math.ceil((shrinkSize - trimmedDrawable[0].length * cellSize) / 2);
+            y = shrinkOffset + Math.ceil((shrinkSize - trimmedDrawable.length * cellSize) / 2);
+        }
+
+        const pos = (n) => n + strokeWidth;
+        const size = cellSize - strokeWidth * 2;
+
+        // Draw the centered shape
+        for (let dy = 0; dy < trimmedDrawable.length; dy++) {
+            for (let dx = 0; dx < trimmedDrawable[dy].length; dx++) {
+                if (trimmedDrawable[dy][dx] !== 0) {
+                    this.#ctx.fillStyle = TetrominoBag.colors[trimmedDrawable[dy][dx] - 1];
+                    this.#ctx.fillRect(pos(x + dx * cellSize), pos(y + dy * cellSize), size, size);
+                }
+            }
+        }
+    }
+}
+
 class TetrominoBag {
+    /** Tetromino colors in order of I, J, L, O, S, T, Z. */
+    static colors = ['#00CCFF', '#0044FF', '#FF8800', '#FFCC00', '#00FF44', '#AA00FF', '#FF0044'];
+
     /** @type {Object<string, Drawable>} */
     static tetrominoes = {
         I: [
@@ -187,6 +263,20 @@ class TetrominoBag {
     }
 
     /**
+     * Gets the next tetromino from the bag without removing it. This is useful for previewing the
+     * next tetromino.
+     *
+     * @returns {number[][]}
+     */
+    nextTetromino() {
+        if (this.#bag.length === 0) {
+            this.#generateBag();
+        }
+
+        return this.#bag[this.#bag.length - 1];
+    }
+
+    /**
      * Get the next tetromino from the bag. The caller is responsible for adding the coordinates of
      * the tetromino.
      *
@@ -215,6 +305,12 @@ class TetrisGame {
     /** @type {HTMLCanvasElement} */
     #canvas;
 
+    /** @type {TetrominoView} */
+    #hold;
+
+    /** @type {TetrominoView} */
+    #next;
+
     /** @type {HTMLParagraphElement} */
     #levelMonitor;
 
@@ -229,6 +325,15 @@ class TetrisGame {
 
     /** @type {Tetromino} */
     #currentTetromino;
+
+    /** @type {Drawable} */
+    #heldTetromino;
+
+    /** Whether the held tetromino has been used. */
+    #isHeld = false;
+
+    /** @type {Drawable} */
+    #nextTetromino;
 
     /** The interval between tetromino drops in milliseconds. */
     #dropInterval = 1000;
@@ -253,11 +358,15 @@ class TetrisGame {
 
     /**
      * @param {HTMLCanvasElement} canvas
+     * @param {HTMLCanvasElement} hold
+     * @param {HTMLCanvasElement} next
      * @param {HTMLParagraphElement} level
      * @param {HTMLParagraphElement} score
      */
-    constructor(canvas, level, score) {
+    constructor(canvas, hold, next, level, score) {
         this.#canvas = canvas;
+        this.#hold = new TetrominoView(hold);
+        this.#next = new TetrominoView(next);
         this.#levelMonitor = level;
         this.#scoreMonitor = score;
         this.#playfield = new Playfield(canvas);
@@ -268,7 +377,10 @@ class TetrisGame {
         document.addEventListener("keydown", this.keydown.bind(this));
         this.#levelMonitor.textContent = this.#level.toString();
         this.#scoreMonitor.textContent = this.#score.toString();
+
         this.#currentTetromino = this.#getNextTetromino();
+        this.#nextTetromino = this.#bag.nextTetromino();
+        this.#next.draw(this.#nextTetromino);
 
         // Start the render loop.
         this.#frame();
@@ -276,6 +388,9 @@ class TetrisGame {
 
     keydown(event) {
         switch (event.key) {
+            case "h":
+                this.#holdTetromino();
+                break;
             case "ArrowLeft":
                 this.#moveTetromino(-1, 0);
                 break;
@@ -349,6 +464,28 @@ class TetrisGame {
         if (this.#checkCollision(this.#currentTetromino)) {
             this.#over = true;
         }
+    }
+
+    /** Holds the current tetromino. */
+    #holdTetromino() {
+        if (this.#isHeld) return;
+        if (this.#heldTetromino) {
+            const held = this.#heldTetromino;
+            this.#heldTetromino = this.#currentTetromino.drawable;
+            this.#currentTetromino = {
+                x: Math.floor((this.#playfield.width - held[0].length) / 2),
+                y: -held.length,
+                drawable: held,
+            }
+            this.#isHeld = true;
+        } else {
+            this.#heldTetromino = this.#currentTetromino.drawable;
+            this.#currentTetromino = this.#getNextTetromino();
+            this.#nextTetromino = this.#bag.nextTetromino();
+            this.#next.draw(this.#nextTetromino);
+        }
+        this.#hold.draw(this.#heldTetromino);
+        this.#update = true;
     }
 
     #rotateTetromino() {
@@ -427,6 +564,8 @@ class TetrisGame {
             } else {
                 this.#playfield.merge(this.#currentTetromino);
                 this.#currentTetromino = this.#getNextTetromino();
+                this.#isHeld = false;
+                this.#next.draw(this.#bag.nextTetromino());
                 this.#checkGameOver();
             }
 
@@ -481,8 +620,10 @@ class TetrisGame {
 }
 
 const canvas = document.getElementById('playfield');
+const hold = document.getElementById('hold');
+const next = document.getElementById('next');
 const level = document.getElementById('level');
 const score = document.getElementById('score');
-const game = new TetrisGame(canvas, level, score);
+const game = new TetrisGame(canvas, hold, next, level, score);
 
 game.start();
