@@ -111,6 +111,21 @@ class Playfield {
         }
     }
 
+    /** Draw the start screen. */
+    drawStartScreen() {
+        // Set the text properties
+        this.#ctx.font = `24px Ariel`;
+        this.#ctx.fillStyle = '#f9fafb';
+        this.#ctx.textAlign = "center";
+        this.#ctx.textBaseline = "middle";
+
+        // Draw the "Game Over" text
+        const text = "點擊開始遊戲";
+        const textX = canvas.width / 2;
+        const textY = canvas.height / 2;
+        this.#ctx.fillText(text, textX, textY);
+    }
+
     /**
      * Draw the "Game Over" screen.
      */
@@ -396,9 +411,14 @@ class TetrisGame {
         this.#levelMonitor = level;
         this.#scoreMonitor = score;
         this.#playfield = new Playfield(canvas);
+        this.#playfield.drawStartScreen();
+        this.boundStart = this.start.bind(this);
+        canvas.addEventListener('click', this.boundStart);
     }
 
     start() {
+        canvas.removeEventListener('click', this.boundStart);
+
         document.addEventListener("keyup", this.keyup.bind(this));
         document.addEventListener("keydown", this.keydown.bind(this));
         this.#levelMonitor.textContent = this.#level.toString();
@@ -653,5 +673,3 @@ const next = document.getElementById('next');
 const level = document.getElementById('level');
 const score = document.getElementById('score');
 const game = new TetrisGame(canvas, hold, next, level, score);
-
-game.start();
