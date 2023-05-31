@@ -3,7 +3,20 @@
     class WebSocket
     {
         /**
-         * The on message callback.
+         * @var Closure The on open callback.
+         *
+         * Usage:
+         *
+         * ```
+         * $server->on_open = function (Socket $socket, string $id) {
+         *    // Do something with the socket.
+         * };
+         * ```
+         */
+        public Closure $on_open;
+
+        /**
+         * @var Closure The on message callback.
          *
          * Usage:
          *
@@ -14,6 +27,13 @@
          * ```
          */
         public Closure $on_message;
+
+        /**
+         * @var Closure This callback is called at the beginning of each main loop iteration.
+         */
+        public Closure $on_tick;
+
+        public Closure $on_close;
 
         /** The server socket. */
         private Socket $server;
@@ -26,7 +46,10 @@
             $this->server = socket_create(AF_INET, SOCK_STREAM, SOL_TCP);
             socket_set_option($this->server, SOL_SOCKET, SO_REUSEADDR, 1);
             socket_bind($this->server, $address, $port);
+            $this->on_open = fn(Socket $socket, string $id) => null;
             $this->on_message = fn(Socket $socket, string $message) => null;
+            $this->on_tick = fn() => null;
+            $this->on_close = fn(string $id) => null;
         }
 
         /** Starts listening for connections. */
@@ -37,6 +60,8 @@
             file_put_contents("php://stdout", "Server started listening!\n");
 
             while (true) {
+                ($this->on_tick)();
+
                 $changed = array_merge([$this->server], $this->clients);
                 $write = $except = null;
                 socket_select($changed, $write, $except, 0, 10);
@@ -48,10 +73,7 @@
 
                     self::perform_handshake($client);
 
-                    $this->send($client, json_encode([
-                        "type" => "init",
-                        "id" => $id
-                    ]));
+                    ($this->on_open)($client, $id);
 
                     $index = array_search($this->server, $changed);
                     unset($changed[$index]);
@@ -61,13 +83,17 @@
                     if ($socket !== $this->server) {
                         while (socket_recv($socket, $data, 1024, 0) >= 1) {
                             $message = self::decode_message($data);
-                            ($this->on_message)($socket, $message);
+                            $id = array_search($socket, $this->clients);
+                            if ($socket && $id) {
+                                ($this->on_message)($socket, $id, $message);
+                            }
                             break 2;
                         }
 
                         $bytes = @socket_read($socket, 1024, PHP_NORMAL_READ);
                         if ($bytes === false) {
                             $index = array_search($socket, $this->clients);
+                            ($this->on_close)($index);
                             unset($this->clients[$index]);
                         }
                     }
@@ -78,11 +104,12 @@
         /**
          * Sends a message to a client.
          *
-         * @param Socket | string $client The client to send the message to or its id.
+         * @param Socket | string | null $client The client to send the message to or its id.
          * @param string $message The message to send.
          */
-        function send(Socket|string $client, string $message): void
+        function send(Socket|string|null $client, string $message): void
         {
+            if ($client === null) return;
             if (is_string($client)) $client = $this->clients[$client];
             $encoded_message = self::encode_message($message);
             socket_write($client, $encoded_message, strlen($encoded_message));
