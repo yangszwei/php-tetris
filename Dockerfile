@@ -9,6 +9,9 @@ RUN docker-php-ext-install sockets
 # Enable required Apache modules
 RUN a2enmod proxy proxy_wstunnel
 
+# Remove default Apache index.html
+RUN rm /var/www/html/index.html
+
 # Configure Apache virtual host
 COPY ./etc/apache.conf /etc/apache2/sites-available/000-default.conf
 
