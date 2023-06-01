@@ -2,7 +2,7 @@
     include "lib/tetris.php";
     include "lib/websocket.php";
 
-    $server = new WebSocket("0.0.0.0", 8080);
+    $server = new WebSocket("0.0.0.0", 8000);
     $games = array();
 
     $start_time = microtime(true);

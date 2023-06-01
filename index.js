@@ -221,7 +221,7 @@ function keyup(event) {
     }
 }
 
-const server = new WebSocket("ws://localhost:8080");
+const server = new WebSocket(`ws://${location.href.split('/')[2]}/server.php`);
 
 const playfield = new Playfield(document.getElementById("playfield"));
 const hold = new TetrominoView(document.getElementById("hold"));
