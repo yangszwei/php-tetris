@@ -1,3 +1,12 @@
+const WEBSOCKET_URL = getWebSocketUrl();
+
+function getWebSocketUrl() {
+    return (location.protocol === "https:" ? "wss://" : "ws://") +
+        location.host +
+        location.pathname.substring(0, location.pathname.lastIndexOf('/') + 1) +
+        'server.php';
+}
+
 /**
  * @typedef {{ x: number; y: number; shape: number[][] }} Tetromino
  */
@@ -221,7 +230,7 @@ function keyup(event) {
     }
 }
 
-const server = new WebSocket(`ws://${location.href.split('/')[2]}/server.php`);
+const server = new WebSocket(WEBSOCKET_URL);
 
 const playfield = new Playfield(document.getElementById("playfield"));
 const hold = new TetrominoView(document.getElementById("hold"));
