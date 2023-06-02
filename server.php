@@ -58,10 +58,10 @@
         }
     };
 
-    $server->on_close = function (string $id) use (&$games) {
+    $server->on_closed = function (string $id) use (&$games) {
         if (isset($games[$id])) {
             unset($games[$id]);
         }
     };
 
-    $server->listen();
+    $server->run();
