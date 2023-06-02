@@ -21,7 +21,7 @@ COPY ./etc/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 # Copy project files
 COPY lib /var/www/lib
 COPY index.php index.js index.css /var/www/html/
-COPY server.php /var/www/server.php
+COPY server.php config.ini /var/www/
 
 # Expose port 80 for web server
 EXPOSE 80
