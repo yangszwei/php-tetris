@@ -5,13 +5,17 @@
     $config = parse_ini_file("config.ini", true);
 
     $server = new WebSocket($config["server"]["address"], $config["server"]["port"]);
+
+    /**
+     * @var TetrisGame[] $games
+     */
     $games = array();
 
     $start_time = microtime(true);
 
     $server->on_open = function (Socket $socket, string $id) use ($server) {
         global $games;
-        $games[$id] = new Tetris();
+        $games[$id] = new TetrisGame();
     };
 
     $server->on_message = function (Socket $socket, string $id, string $message) use ($server) {
@@ -36,10 +40,14 @@
                 $games[$id]->move_right();
                 break;
             case "down":
-                $games[$id]->move_down($data["reset"]);
+                if ($data["reset"] === true) {
+                    $games[$id]->reset_drop_interval();
+                } else {
+                    $games[$id]->soft_drop();
+                }
                 break;
             case "rotate":
-                $games[$id]->rotate();
+                $games[$id]->rotate(true);
                 break;
             case "ack over":
                 $games[$id]->is_playing = false;

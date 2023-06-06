@@ -1,22 +1,98 @@
 <?php
 
+    /**
+     * A tetromino is a *positioned* piece on the playfield.
+     */
     class Tetromino
     {
+        /**
+         * @var int $x The x-coordinate of the tetromino.
+         */
         public int $x;
+
+        /**
+         * @var int $y The y-coordinate of the tetromino.
+         */
         public int $y;
+
+        /**
+         * @var number[][] $shape The shape of the tetromino with color information.
+         */
         public array $shape;
 
-        public function __construct(array $shape, int $x = 0, int $y = 0)
+        /**
+         * @var bool $is_updated Whether the tetromino has unpushed updates.
+         */
+        public bool $is_updated = true;
+
+        /**
+         * Constructs a new tetromino.
+         *
+         * @param int $x The x-coordinate of the tetromino.
+         * @param int $y The y-coordinate of the tetromino.
+         * @param number[][] $shape The shape of the tetromino with color information.
+         */
+        public function __construct(int $x, int $y, array $shape)
         {
-            $this->shape = $shape;
             $this->x = $x;
             $this->y = $y;
+            $this->shape = $shape;
+        }
+
+        /**
+         * Creates a new tetromino instance with the changed coordinates.
+         *
+         * @param Tetromino $tetromino The tetromino to move.
+         * @param int $x The x-coordinate change.
+         * @param int $y The y-coordinate change.
+         * @return Tetromino The moved tetromino.
+         */
+        public static function move(Tetromino $tetromino, int $x, int $y): Tetromino
+        {
+            $updated = clone $tetromino;
+            $updated->x += $x;
+            $updated->y += $y;
+            $updated->is_updated = true;
+            return $updated;
+        }
+
+        /**
+         * Creates a new tetromino instance with the rotated shape.
+         *
+         * @param Tetromino $tetromino The tetromino to rotate.
+         * @param bool $clockwise Whether to rotate clockwise.
+         * @return Tetromino The rotated tetromino.
+         */
+        public static function rotate(Tetromino $tetromino, bool $clockwise): Tetromino
+        {
+            $updated = clone $tetromino;
+            $size = count($tetromino->shape);
+
+            $updated->shape = array_fill(0, $size, array_fill(0, $size, 0));
+            for ($i = 0; $i < $size; $i++) {
+                for ($j = 0; $j < $size; $j++) {
+                    if ($clockwise) {
+                        $updated->shape[$i][$j] = $tetromino->shape[$size - $j - 1][$i];
+                    } else {
+                        $updated->shape[$i][$j] = $tetromino->shape[$j][$size - $i - 1];
+                    }
+                }
+            }
+
+            $updated->is_updated = true;
+            return $updated;
         }
     }
 
-    class Tetris
+    /**
+     * A tetromino bag provides a sequence of tetrominos for the game to spawn.
+     */
+    class TetrominoBag
     {
-        public static array $TETROMINOES = [
+        /**
+         * @const number[][][] TETROMINOES The list of all possible tetrominoes.
+         */
+        public const TETROMINOES = [
             "I" => [
                 [0, 0, 0, 0],
                 [1, 1, 1, 1],
@@ -54,221 +130,151 @@
             ]
         ];
 
-        public static array $SCORES = [0, 40, 100, 300, 1200];
-
-        public static array $GRAVITY = [
-            0, 0.01667, 0.01875, 0.02143, 0.03, 0.0325, 0.0375,
-            0.0425, 0.0475, 0.05625, 0.0625, 0.06875, 0.075, 0.0875,
-            0.1, 0.125, 0.15, 0.175, 0.2, 0.25, 0.3
-        ];
-
-        public bool $is_playing = false;
-
-        private array $matrix = [];
-
-        private int $rows = 20;
-        private int $hidden_rows = 4;
-        private int $columns = 10;
-
-        private Tetromino $current_tetromino;
-        private array $held_tetromino = [];
-
+        /**
+         * @var number[][][] $bag The bag of tetrominos.
+         */
         private array $bag = [];
 
-        private float $last_update_time = 0;
-        private bool $hold_used = false;
-        private bool $is_hold_updated = true;
-        private bool $is_tetromino_updated = true;
-        private bool $is_playfield_updated = true;
-        private bool $is_status_updated = true;
-
-        private int $lines_cleared = 0;
-        private int $score = 0;
-        private int $level = 1;
-        private float $drop_interval = 0;
-
-        private bool $is_game_over = false;
-
+        /**
+         * Constructs a new tetromino bag.
+         */
         public function __construct()
         {
-            $total_rows = $this->rows + $this->hidden_rows;
-            $this->matrix = array_fill(0, $total_rows, array_fill(0, $this->columns, 0));
-            $this->bag = self::generate_tetromino_bag();
+            $this->generate();
         }
 
-        public function start(): void
+        /**
+         * Gets the next tetromino in the bag for spawning.
+         *
+         * @param Playfield $playfield
+         *   The playfield to spawn the tetromino in. This is used to
+         *   calculate the initial position of the tetromino.
+         * @return Tetromino The next tetromino.
+         */
+        public function get_next(Playfield $playfield): Tetromino
         {
-            $this->bag = self::generate_tetromino_bag();
-            $this->current_tetromino = $this->get_next_tetromino();
-            $this->level = self::calculate_level($this->lines_cleared);
-            $this->drop_interval = self::calculate_drop_interval($this->level);
-        }
-
-        public function hold(): void
-        {
-            if ($this->hold_used) {
-                return;
-            }
-
-            if (empty($this->held_tetromino)) {
-                $this->held_tetromino = $this->current_tetromino->shape;
-                $this->current_tetromino = $this->get_next_tetromino();
-            } else {
-                $temp = $this->current_tetromino->shape;
-                $x = (int)floor(($this->columns - count($this->held_tetromino)) / 2);
-                $y = -$this->hidden_rows;
-                $this->current_tetromino = new Tetromino($this->held_tetromino, $x, $y);
-                $this->held_tetromino = $temp;
-            }
-
-            $this->hold_used = true;
-            $this->is_hold_updated = true;
-            $this->is_tetromino_updated = true;
-        }
-
-        public function move_left(): void
-        {
-            $this->move_tetromino(-1, 0);
-        }
-
-        public function move_right(): void
-        {
-            $this->move_tetromino(1, 0);
-        }
-
-        public function move_down(bool $reset): void
-        {
-            $this->drop_interval = $reset ? self::calculate_drop_interval($this->level) : 0.05;
-        }
-
-        public function rotate(): void
-        {
-            $tetromino = clone $this->current_tetromino;
-            $height = count($tetromino->shape);
-            $width = count($tetromino->shape[0]);
-
-            $rotated = array_fill(0, $width, array_fill(0, $height, 0));
-            for ($y = 0; $y < $height; $y++) {
-                for ($x = 0; $x < $width; $x++) {
-                    $rotated[$x][$y] = $tetromino->shape[$height - $y - 1][$x];
-                }
-            }
-
-            $tetromino->shape = $rotated;
-            $tetromino->x += floor(($width - $height) / 2);
-            $tetromino->y += floor(($height - $width) / 2);
-
-            if (!$this->check_collision($tetromino)) {
-                $this->current_tetromino = $tetromino;
-                $this->is_tetromino_updated = true;
-            }
-        }
-
-        public function update(): array
-        {
-            $current_time = microtime(true);
-            $updates = array();
-
-            if ($this->is_game_over) {
-                $updates[] = ["type" => "over"];
-                return $updates;
-            }
-
-            if ($current_time - $this->last_update_time >= $this->drop_interval) {
-                $this->move_tetromino(0, 1);
-
-                if (!$this->is_tetromino_updated) {
-                    $this->merge_tetromino();
-                    $this->current_tetromino = $this->get_next_tetromino();
-                    $this->hold_used = false;
-                    if ($this->check_collision($this->current_tetromino)) {
-                        $this->is_game_over = true;
-                    }
-                }
-
-                $lines_cleared = $this->clear_full_lines();
-
-                if ($lines_cleared > 0) {
-                    $this->score += self::$SCORES[$lines_cleared] * $this->level;
-                    $this->level = self::calculate_level($this->lines_cleared);
-                    $this->drop_interval = self::calculate_drop_interval($this->level);
-                    $this->is_status_updated = true;
-                }
-
-                $this->last_update_time = microtime(true);
-            }
-
-            if ($this->is_playfield_updated) {
-                $updates[] = array(
-                    "type" => "playfield",
-                    "matrix" => array_slice($this->matrix, $this->hidden_rows, $this->rows)
-                );
-            }
-
-            if ($this->is_tetromino_updated) {
-                $updates[] = array(
-                    "type" => "tetromino",
-                    "tetromino" => [
-                        "x" => $this->current_tetromino->x,
-                        "y" => $this->current_tetromino->y,
-                        "shape" => $this->current_tetromino->shape
-                    ]
-                );
-                $updates[] = array(
-                    "type" => "next",
-                    "shape" => $this->bag[count($this->bag) - 1]
-                );
-            }
-
-            if ($this->is_hold_updated) {
-                $updates[] = array(
-                    "type" => "hold",
-                    "shape" => $this->held_tetromino
-                );
-            }
-
-            if ($this->is_status_updated) {
-                $updates[] = array(
-                    "type" => "status",
-                    "score" => $this->score,
-                    "level" => $this->level
-                );
-            }
-
-            $this->is_status_updated = false;
-            $this->is_hold_updated = false;
-            $this->is_tetromino_updated = false;
-            $this->is_playfield_updated = false;
-
-            return $updates;
-        }
-
-        private function get_next_tetromino(): Tetromino
-        {
-            $shape = array_pop($this->bag);
-            $x = (int)floor(($this->columns - count($shape)) / 2);
-            $y = -$this->hidden_rows;
-
+            $shape = array_shift($this->bag);
             if (count($this->bag) === 0) {
-                $this->bag = self::generate_tetromino_bag();
+                $this->generate();
             }
 
-            return new Tetromino($shape, $x, $y);
+            $x = (int)floor(($playfield->columns() - count($shape)) / 2);
+            $y = -count($shape) - 1;
+            return new Tetromino($x, $y, $shape);
         }
 
-        private function check_collision(Tetromino $tetromino): bool
+        /**
+         * Gets the next tetromino in the bag for previewing. This does not remove
+         * the tetromino from the bag.
+         *
+         * @return number[][] The next tetromino.
+         */
+        public function next(): array
+        {
+            return $this->bag[0];
+        }
+
+        /**
+         * Updates the bag with a new sequence of tetrominos.
+         *
+         * @return void
+         */
+        private function generate(): void
+        {
+            $keys = array_keys(self::TETROMINOES);
+            shuffle($keys);
+            $this->bag = array_map(fn($key) => self::TETROMINOES[$key], $keys);
+        }
+    }
+
+    /**
+     * A playfield is the area where tetrominos are placed. This contains the visible area and
+     * the hidden area (at the top of the playfield) for spawning new tetrominos.
+     */
+    class Playfield
+    {
+        /**
+         * @var bool $is_updated Whether the playfield has unpushed updates.
+         */
+        public bool $is_updated = true;
+
+        /**
+         * @var int $hidden_rows The number of hidden rows in the playfield.
+         */
+        private int $hidden_rows;
+
+        /**
+         * @var number[][] $field The playfield array.
+         */
+        private array $field;
+
+        /**
+         * Constructs a new playfield.
+         *
+         * @param int $rows The number of rows in the playfield.
+         * @param int $hidden_rows The number of hidden rows in the playfield.
+         * @param int $columns The number of columns in the playfield.
+         */
+        public function __construct(int $rows = 20, int $hidden_rows = 4, int $columns = 10)
+        {
+            $this->hidden_rows = $hidden_rows;
+            $this->field = array_fill(0, $rows + $hidden_rows, array_fill(0, $columns, 0));
+        }
+
+        /**
+         * @return int The number of visible rows in the playfield.
+         */
+        public function rows(): int
+        {
+            return count($this->field) - $this->hidden_rows;
+        }
+
+        /**
+         * @return int The number of hidden rows in the playfield.
+         */
+        public function hidden_rows(): int
+        {
+            return $this->hidden_rows;
+        }
+
+        /**
+         * @return int The number of columns in the playfield.
+         */
+        public function columns(): int
+        {
+            return count($this->field[0]);
+        }
+
+        /**
+         * @return number[][] The playfield array.
+         */
+        public function field(): array
+        {
+            return $this->field;
+        }
+
+        /**
+         * Checks if the given tetromino collides with the playfield.
+         *
+         * @param Tetromino $tetromino The tetromino to check.
+         * @return bool Whether the tetromino collides with the playfield.
+         */
+        public function is_collided(Tetromino $tetromino): bool
         {
             for ($dy = 0; $dy < count($tetromino->shape); $dy++) {
                 for ($dx = 0; $dx < count($tetromino->shape[$dy]); $dx++) {
-                    if ($tetromino->shape[$dy][$dx] !== 0) {
+                    if ($tetromino->shape[$dy][$dx] > 0) {
                         $x = $tetromino->x + $dx;
                         $y = $tetromino->y + $dy;
-                        // Check if tetromino is out of playfield bounds.
-                        if ($x < 0 || $x >= $this->columns || $y < -$this->hidden_rows || $y >= $this->rows) {
+                        // Check if the tetromino is out of bounds.
+                        if (
+                            $x < 0 || $x >= $this->columns() ||
+                            $y < -$this->hidden_rows || $y >= $this->rows()
+                        ) {
                             return true;
                         }
-                        // Check if tetromino is colliding with another tetromino.
-                        if ($this->matrix[$y + $this->hidden_rows][$x] !== 0) {
+                        // Check if the tetromino is colliding with another tetromino.
+                        if ($this->field[$y + $this->hidden_rows][$x] > 0) {
                             return true;
                         }
                     }
@@ -277,69 +283,456 @@
             return false;
         }
 
-        private function move_tetromino(int $x, int $y): void
+        /**
+         * Checks if the specified row is full.
+         *
+         * @param int $y The row to check.
+         * @return bool Whether the row is full.
+         */
+        public function is_full_row(int $y): bool
         {
-            $tetromino = clone $this->current_tetromino;
-            $tetromino->x += $x;
-            $tetromino->y += $y;
-            if (!$this->check_collision($tetromino)) {
-                $this->current_tetromino = $tetromino;
-                $this->is_tetromino_updated = true;
-            }
+            return !in_array(0, $this->field[$y + $this->hidden_rows]);
         }
 
-        private function merge_tetromino(): void
+        /**
+         * Merges a tetromino into the playfield. This is useful for locking a tetromino that has
+         * reached the bottom.
+         *
+         * @param Tetromino $tetromino The tetromino to merge.
+         * @return void
+         */
+        public function merge(Tetromino $tetromino): void
         {
-            for ($dy = 0; $dy < count($this->current_tetromino->shape); $dy++) {
-                for ($dx = 0; $dx < count($this->current_tetromino->shape[$dy]); $dx++) {
-                    if ($this->current_tetromino->shape[$dy][$dx] !== 0) {
-                        $x = $this->current_tetromino->x + $dx;
-                        $y = $this->current_tetromino->y + $dy + $this->hidden_rows;
-                        $this->matrix[$y][$x] = $this->current_tetromino->shape[$dy][$dx];
+            $this->field = self::merge_field($this->field, $this->hidden_rows, $tetromino);
+            $this->is_updated = true;
+        }
+
+        /**
+         * Removes a row from the playfield and shifts the rows above it down. This is useful for
+         * clearing a full row.
+         *
+         * @param int $y The row to remove.
+         * @return void
+         */
+        public function drop_row(int $y): void
+        {
+            array_splice($this->field, $y + $this->hidden_rows, 1);
+            array_unshift($this->field, array_fill(0, $this->columns(), 0));
+        }
+
+        /**
+         * Merges a tetromino into the playfield.
+         *
+         * @param number[][] $field The field to merge into.
+         * @param Tetromino $tetromino The tetromino to merge.
+         * @return number[][] The merged playfield array.
+         */
+        public static function merge_field(array $field, int $hidden_rows, Tetromino $tetromino): array
+        {
+            for ($dy = 0; $dy < count($tetromino->shape); $dy++) {
+                for ($dx = 0; $dx < count($tetromino->shape[$dy]); $dx++) {
+                    if ($tetromino->shape[$dy][$dx] > 0) {
+                        $x = $tetromino->x + $dx;
+                        $y = $tetromino->y + $dy;
+                        $field[$y + $hidden_rows][$x] = $tetromino->shape[$dy][$dx];
                     }
                 }
             }
-            $this->is_playfield_updated = true;
+            return $field;
+        }
+    }
+
+    /**
+     * A tetris game instance contains the game logic and state.
+     */
+    class TetrisGame
+    {
+        /**
+         * @var int $rows The score indexed by the number of rows cleared.
+         */
+        private const SCORES = [0, 40, 100, 300, 1200];
+
+        /**
+         * @var int $rows The gravity indexed by the level.
+         */
+        private const GRAVITY = [
+            0, 0.01667, 0.01875, 0.02143, 0.03, 0.0325, 0.0375,
+            0.0425, 0.0475, 0.05625, 0.0625, 0.06875, 0.075, 0.0875,
+            0.1, 0.125, 0.15, 0.175, 0.2, 0.25, 0.3
+        ];
+
+        /**
+         * @var bool $is_playing
+         * Whether the game is currently active. This controls whether the
+         * game accepts commands and whether the game state can be updated.
+         */
+        public bool $is_playing = false;
+
+        /**
+         * @var Playfield $playfield The game playfield.
+         */
+        private Playfield $playfield;
+
+        /**
+         * @var TetrominoBag $bag The tetromino bag.
+         */
+        private TetrominoBag $bag;
+
+        /**
+         * @var Tetromino $current The current tetromino.
+         */
+        private Tetromino $current;
+
+        /**
+         * @var bool $is_tetromino_changed Whether the current tetromino has changed to a new one.
+         */
+        private bool $is_tetromino_changed = true;
+
+        /**
+         * @var number[][] The current held tetromino.
+         */
+        private array $hold = [];
+
+        /**
+         * @var bool $is_hold_changed Whether the held tetromino has changed to a new one.
+         */
+        private bool $is_hold_changed = false;
+
+        /**
+         * @var bool $is_hold_locked Whether the hold feature is locked.
+         */
+        private bool $is_hold_locked = false;
+
+        /**
+         * @var float $drop_interval The drop interval in seconds.
+         */
+        private float $drop_interval = 0;
+
+        /**
+         * @var float $last_drop_time The last time the tetromino was dropped.
+         */
+        private float $last_drop_time = 0;
+
+        /**
+         * @var int $cleared_rows The number of rows cleared in this game.
+         */
+        private int $cleared_rows = 0;
+
+        /**
+         * @var int $level The current level.
+         */
+        private int $level = 1;
+
+        /**
+         * @var int $score The current score.
+         */
+        private int $score = 0;
+
+        /**
+         * @var bool $is_status_updated Whether the game status has unpushed updates.
+         */
+        private bool $is_status_updated = false;
+
+        /**
+         * @var bool $is_game_over Whether the game is over.
+         */
+        private bool $is_game_over = false;
+
+        /**
+         * Constructs a new tetris game instance.
+         */
+        public function __construct()
+        {
+            $this->playfield = new Playfield();
+            $this->bag = new TetrominoBag();
         }
 
-        private function clear_full_lines(): int
+        /**
+         * Starts the game.
+         *
+         * @return void
+         */
+        public function start(): void
         {
-            $lines_cleared = 0;
-            for ($y = 0; $y < count($this->matrix); $y++) {
-                $is_full = true;
-                for ($x = 0; $x < count($this->matrix[$y]); $x++) {
-                    if ($this->matrix[$y][$x] === 0) {
-                        $is_full = false;
-                        break;
+            if ($this->is_playing) {
+                return;
+            }
+            $this->current = $this->bag->get_next($this->playfield);
+            $this->update_status();
+        }
+
+        /**
+         * Holds the current tetromino.
+         *
+         * @return bool Whether the hold was successful.
+         */
+        public function hold(): bool
+        {
+            if (!$this->is_playing || $this->is_hold_locked) {
+                return false;
+            }
+
+            if (empty($this->hold)) {
+                $this->hold = $this->current->shape;
+                $this->current = $this->bag->get_next($this->playfield);
+            } else {
+                $temp = $this->current->shape;
+                $x = (int)floor(($this->playfield->columns() - count($this->current->shape)) / 2);
+                $y = $this->playfield->hidden_rows();
+                $this->current = new Tetromino($x, $y, $this->hold);
+                $this->hold = $temp;
+            }
+
+            $this->is_hold_locked = true;
+            $this->is_hold_changed = true;
+
+            return true;
+        }
+
+        /**
+         * Moves the current tetromino left by one cell.
+         *
+         * @return bool Whether the tetromino was moved successfully.
+         */
+        public function move_left(): bool
+        {
+            if (!$this->is_playing) {
+                return false;
+            }
+            return $this->move(-1, 0);
+        }
+
+        /**
+         * Moves the current tetromino right by one cell.
+         *
+         * @return bool Whether the tetromino was moved successfully.
+         */
+        public function move_right(): bool
+        {
+            if (!$this->is_playing) {
+                return false;
+            }
+            return $this->move(1, 0);
+        }
+
+        /**
+         * Rotates the current tetromino.
+         *
+         * @param bool $clockwise Whether to rotate clockwise.
+         * @return bool Whether the tetromino was rotated successfully.
+         */
+        public function rotate(bool $clockwise): bool
+        {
+            if (!$this->is_playing) {
+                return false;
+            }
+            $temp = Tetromino::rotate($this->current, $clockwise);
+            if ($this->playfield->is_collided($temp)) {
+                return false;
+            }
+            $this->current = $temp;
+            return true;
+        }
+
+        /**
+         * Makes the current tetromino drop faster.
+         *
+         * @return bool Whether the drop interval was changed successfully.
+         */
+        public function soft_drop(): bool
+        {
+            if (!$this->is_playing) {
+                return false;
+            }
+            $this->drop_interval = self::GRAVITY[$this->level];
+            return true;
+        }
+
+        /**
+         * Resets the drop interval to respective value of the current level.
+         *
+         * @return bool Whether the drop interval was reset successfully.
+         */
+        public function reset_drop_interval(): bool
+        {
+            if (!$this->is_playing) {
+                return false;
+            }
+            $this->drop_interval = self::calculate_drop_interval($this->level);
+            return true;
+        }
+
+        public function update(): array|bool
+        {
+            if (!$this->is_playing) {
+                return false;
+            }
+
+            $updates = array();
+
+            if ($this->is_game_over) {
+                $updates[] = ["type" => "game_over"];
+                return $updates;
+            }
+
+            if ($this->is_drop_interval_elapsed()) {
+                $is_dropped = $this->drop();
+                if (!$is_dropped) {
+                    $this->is_hold_locked = false;
+                    $rows_cleared = $this->clear_full_rows();
+                    if ($rows_cleared > 0) {
+                        $this->update_status($rows_cleared);
                     }
                 }
-                if ($is_full) {
-                    array_splice($this->matrix, $y, 1);
-                    array_unshift($this->matrix, array_fill(0, $this->columns, 0));
-                    $lines_cleared++;
+            }
+
+            if ($this->playfield->is_updated) {
+                $updates[] = [
+                    "type" => "playfield",
+                    "field" => array_slice($this->playfield->field(), $this->playfield->hidden_rows())
+                ];
+                $this->playfield->is_updated = false;
+            }
+
+            if ($this->current->is_updated) {
+                $updates[] = [
+                    "type" => "tetromino",
+                    "x" => $this->current->x,
+                    "y" => $this->current->y,
+                    "shape" => $this->current->shape
+                ];
+                $this->current->is_updated = false;
+            }
+
+            if ($this->is_hold_changed) {
+                $updates[] = [
+                    "type" => "hold",
+                    "shape" => $this->hold
+                ];
+                $this->is_hold_changed = false;
+            }
+
+            if ($this->is_tetromino_changed) {
+                $updates[] = [
+                    "type" => "next_tetromino",
+                    "shape" => $this->bag->next()
+                ];
+                $this->is_tetromino_changed = false;
+            }
+
+            if ($this->is_status_updated) {
+                $updates[] = [
+                    "type" => "status",
+                    "level" => $this->level,
+                    "score" => $this->score,
+                    "cleared_rows" => $this->cleared_rows
+                ];
+                $this->is_status_updated = false;
+            }
+
+            return $updates;
+        }
+
+        /**
+         * Updates the game status.
+         *
+         * @param int $cleared_rows The number of rows cleared in the current update.
+         * @return void
+         */
+        private function update_status(int $cleared_rows = 0): void
+        {
+            $this->score += self::SCORES[$cleared_rows] * $this->level;
+            $this->level = self::calculate_level($this->cleared_rows);
+            $this->drop_interval = self::calculate_drop_interval($this->level);
+            $this->is_status_updated = true;
+        }
+
+        /**
+         * @return bool Whether the drop interval has elapsed since the last drop.
+         */
+        private function is_drop_interval_elapsed(): bool
+        {
+            return microtime(true) - $this->last_drop_time >= $this->drop_interval;
+        }
+
+        /**
+         * Moves the current tetromino by the given coordinates.
+         *
+         * @param int $x The x coordinate.
+         * @param int $y The y coordinate.
+         * @return bool Whether the tetromino was moved successfully.
+         */
+        private function move(int $x, int $y): bool
+        {
+            $temp = Tetromino::move($this->current, $x, $y);
+            if ($this->playfield->is_collided($temp)) {
+                return false;
+            }
+            $this->current = $temp;
+            return true;
+        }
+
+        /**
+         * Drops the current tetromino by one row.
+         *
+         * @return bool Whether the tetromino was dropped.
+         */
+        private function drop(): bool
+        {
+            $is_moved = $this->move(0, 1);
+            if (!$is_moved) {
+                $this->playfield->merge($this->current);
+                $this->current = $this->bag->get_next($this->playfield);
+                $this->is_tetromino_changed = true;
+                if ($this->playfield->is_collided($this->current)) {
+                    $this->is_game_over = true;
+                }
+                return false;
+            }
+            $this->last_drop_time = microtime(true);
+            return true;
+        }
+
+        /**
+         * Clears all full rows from the playfield.
+         *
+         * @return int The number of rows cleared.
+         */
+        private function clear_full_rows(): int
+        {
+            $cleared_rows = 0;
+            for ($y = 0; $y < $this->playfield->rows(); $y++) {
+                if ($this->playfield->is_full_row($y)) {
+                    $this->playfield->drop_row($y);
+                    $cleared_rows++;
                 }
             }
-            if ($lines_cleared > 0) {
-                $this->is_playfield_updated = true;
-                $this->lines_cleared += $lines_cleared;
+            if ($cleared_rows > 0) {
+                $this->playfield->is_updated = true;
+                $this->cleared_rows += $cleared_rows;
             }
-            return $lines_cleared;
+            return $cleared_rows;
         }
 
-        private static function generate_tetromino_bag(): array
+        /**
+         * Calculates the level from the number of cleared rows.
+         *
+         * @param int $cleared_rows The total number of cleared rows.
+         * @return int The level.
+         */
+        private static function calculate_level(int $cleared_rows): int
         {
-            $bag = array_keys(self::$TETROMINOES);
-            shuffle($bag);
-            return array_map(fn($key) => self::$TETROMINOES[$key], $bag);
+            return (int)floor($cleared_rows / 10) + 1;
         }
 
-        private static function calculate_level(int $lines_cleared): int
-        {
-            return floor($lines_cleared / 10) + 1;
-        }
-
+        /**
+         * Calculates the drop interval from the level.
+         *
+         * @param int $level The level.
+         * @return float The drop interval in seconds.
+         */
         private static function calculate_drop_interval(int $level): float
         {
-            return 1 / (self::$GRAVITY[min($level, count(self::$GRAVITY) - 1)] * 60);
+            return 1 / (self::GRAVITY[min($level, count(self::GRAVITY) - 1)] * 60);
         }
     }

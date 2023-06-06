@@ -254,15 +254,19 @@ server.onmessage = (event) => {
                 hold.draw(data.shape);
             }
             break;
-        case "next":
+        case "next_tetromino":
             next.draw(data.shape);
             break;
         case "playfield":
-            playfield.matrix = data.matrix;
+            playfield.matrix = data.field;
             playfield.render();
             break;
         case "tetromino":
-            playfield.currentTetromino = data.tetromino;
+            playfield.currentTetromino = {
+                shape: data.shape,
+                x: data.x,
+                y: data.y,
+            }
             playfield.render();
             break;
         case "over":
