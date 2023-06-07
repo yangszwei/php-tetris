@@ -1,282 +1,484 @@
-const WEBSOCKET_URL = getWebSocketUrl();
+// ----- CONFIGURATION CONSTANTS ----- //
 
-function getWebSocketUrl() {
-    return (location.protocol === "https:" ? "wss://" : "ws://") +
-        location.host +
-        location.pathname.substring(0, location.pathname.lastIndexOf('/') + 1) +
-        'server.php';
-}
+/** The game server URL. */
+const SERVER_URL = '';
+
+// ----- DO NOT MODIFY BELOW THIS LINE ----- //
+
+/** No operation. */
+const noop = () => {
+};
 
 /**
- * @typedef {{ x: number; y: number; shape: number[][] }} Tetromino
+ * Provides a base class for drawing tetrominoes.
  */
+class Drawable {
+    /** The tetromino colors. */
+    static COLORS = [
+        ['rgb(0, 204, 255)', 'rgba(0, 204, 255, 0.3)'], // I
+        ['rgb(0, 68, 255)', 'rgba(0, 68, 255, 0.3)'],   // J
+        ['rgb(255, 136, 0)', 'rgba(255, 136, 0, 0.3)'], // L
+        ['rgb(255, 204, 0)', 'rgba(255, 204, 0, 0.3)'], // O
+        ['rgb(0, 255, 68)', 'rgba(0, 255, 68, 0.3)'],   // S
+        ['rgb(170, 0, 255)', 'rgba(170, 0, 255, 0.3)'], // T
+        ['rgb(255, 0, 68)', 'rgba(255, 0, 68, 0.3)']    // Z
+    ];
 
-class Playfield {
-    /** Tetromino colors in order of I, J, L, O, S, T, Z. */
-    static colors = ['#00CCFF', '#0044FF', '#FF8800', '#FFCC00', '#00FF44', '#AA00FF', '#FF0044'];
+    /**
+     * @type {number} The number of rows in the grid.
+     */
+    rows;
 
+    /**
+     * @type {number} The number of columns in the grid.
+     */
+    columns;
+
+    /** The size of a cell in pixels. */
     cellSize = 30;
+
+    /** The color of the tetromino. */
     strokeWidth = 1;
 
-    /** @type {number[][]} */
-    matrix = [];
-
-    /** @type {Tetromino} */
-    currentTetromino;
-
-    /** @param {CanvasRenderingContext2D} ctx */
-    #ctx;
-
-    /**
-     * @param {HTMLCanvasElement} canvas
-     */
-    constructor(canvas) {
-        this.#ctx = canvas.getContext("2d");
-    }
-
-    render() {
-        this.clear();
-        if (this.matrix) {
-            this.draw(0, 0, this.matrix);
-        }
-        if (this.currentTetromino) {
-            this.draw(this.currentTetromino.x, this.currentTetromino.y, this.currentTetromino.shape);
-        }
-    }
-
-    /**
-     * Draw a drawable at the given coordinates.
-     *
-     * @param {number} x - The x coordinate of the drawable.
-     * @param {number} y - The y coordinate of the drawable.
-     * @param {number[][]} shape - The shape to draw.
-     */
-    draw(x, y, shape) {
-        for (let dy = 0; dy < shape.length; dy++) {
-            for (let dx = 0; dx < shape[dy].length; dx++) {
-                if (shape[dy][dx] !== 0) {
-                    this.fill(x + dx, y + dy, shape[dy][dx]);
-                }
-            }
-        }
-    }
-
-    /** Draw the start screen. */
-    drawStartScreen() {
-        // Set the text properties
-        this.#ctx.font = `24px Ariel`;
-        this.#ctx.fillStyle = '#f9fafb';
-        this.#ctx.textAlign = "center";
-        this.#ctx.textBaseline = "middle";
-
-        // Draw the "Game Over" text
-        const text = "點擊開始遊戲";
-        const textX = this.#ctx.canvas.width / 2;
-        const textY = this.#ctx.canvas.height / 2;
-        this.#ctx.fillText(text, textX, textY);
-    }
-
-    /**
-     * Draw the "Game Over" screen.
-     */
-    drawGameOver() {
-        const backgroundWidth = 300;
-        const backgroundHeight = 80;
-        const backgroundX = (this.#ctx.canvas.width - backgroundWidth) / 2;
-        const backgroundY = (this.#ctx.canvas.height - backgroundHeight) / 2;
-
-        // Draw the background
-        this.#ctx.fillStyle = "#f9fafb";
-        this.#ctx.fillRect(backgroundX, backgroundY, backgroundWidth, backgroundHeight);
-
-        // Set the text properties
-        this.#ctx.font = `30px "Noto Sans TC"`;
-        this.#ctx.fillStyle = '#111827';
-        this.#ctx.textAlign = "center";
-        this.#ctx.textBaseline = "middle";
-
-        // Draw the "Game Over" text
-        const text = "Game Over";
-        const textX = this.#ctx.canvas.width / 2;
-        const textY = this.#ctx.canvas.height / 2;
-        this.#ctx.fillText(text, textX, textY);
-    }
-
-    /**
-     * Fill a cell with the given color.
-     *
-     * @param {number} x - The x coordinate of the cell.
-     * @param {number} y - The y coordinate of the cell.
-     * @param {number} color - The index of the color to fill. See {@link Playfield.#colors}.
-     * */
-    fill(x, y, color) {
-        const pos = (n) => n * this.cellSize + this.strokeWidth;
-        const size = this.cellSize - this.strokeWidth * 2;
-        this.#ctx.fillStyle = Playfield.colors[color - 1];
-        this.#ctx.fillRect(pos(x), pos(y), size, size);
-    }
-
-    /** Clear the playfield canvas. */
-    clear() {
-        this.#ctx.clearRect(0, 0, this.#ctx.canvas.width, this.#ctx.canvas.height);
-    }
-}
-
-class TetrominoView {
     /** @type {CanvasRenderingContext2D} */
     #ctx;
 
+    /** The mutex lock for filling methods. */
+    #fillLock = false;
+
     /**
-     * @param {HTMLCanvasElement} canvas
+     * @param {number} rows The number of rows in the grid.
+     * @param {number} columns The number of columns in the grid.
+     * @param {HTMLCanvasElement} canvas The canvas to draw on.
      */
-    constructor(canvas) {
+    constructor(rows, columns, canvas) {
+        this.rows = rows;
+        this.columns = columns;
         this.#ctx = canvas.getContext('2d');
     }
 
     /**
-     * Draw a drawable in the center of the canvas.
+     * Draws the given shape at the center of the canvas. Note that the shape
+     * is expected to be trimmed.
      *
-     * @param {number[][]} drawable - The drawable to draw.
+     * @param {number[][]} shape The shape to draw with color information.
+     * @param {number} padding The padding around the shape in pixels.
+     * @returns {void}
      */
-    draw(drawable) {
+    center(shape, padding = this.cellSize / 2) {
+        const size = Math.max(shape.length, shape[0].length);
+        const contentArea = Math.min(this.#ctx.canvas.width, this.#ctx.canvas.height) - padding * 2;
+        const cellSize = Math.min(this.cellSize, Math.max(3, Math.floor(contentArea / size)));
+        const strokeWidth = Math.max(1, this.strokeWidth * (cellSize / this.cellSize));
+        const fillSize = cellSize - strokeWidth * 2;
+        const top = Math.floor((this.#ctx.canvas.height - cellSize * shape.length) / 2);
+        const left = Math.floor((this.#ctx.canvas.width - cellSize * shape[0].length) / 2);
+        while (this.#fillLock) noop();
+        this.#fillLock = true;
+        for (let dy = 0; dy < shape.length; dy++) {
+            for (let dx = 0; dx < shape[dy].length; dx++) {
+                if (shape[dy][dx] !== 0) {
+                    const x = left + dx * cellSize + strokeWidth;
+                    const y = top + dy * cellSize + strokeWidth;
+                    this.#ctx.fillStyle = Drawable.COLORS[shape[dy][dx] - 1][0];
+                    this.#ctx.fillRect(x, y, fillSize, fillSize);
+                }
+            }
+        }
+        this.#fillLock = false;
+    }
+
+    /**
+     * Draws the given shape at the given position.
+     *
+     * @param {number} x The x position of the shape.
+     * @param {number} y The y position of the shape.
+     * @param {number[][]} shape The shape to draw with color information.
+     * @param {number} [colorType=0] The color type of the shape.
+     * @returns {void}
+     */
+    draw(x, y, shape, colorType = 0) {
+        while (this.#fillLock) noop();
+        this.#fillLock = true;
+
+        for (let dy = 0; dy < shape.length; dy++) {
+            for (let dx = 0; dx < shape[dy].length; dx++) {
+                if (shape[dy][dx] !== 0) {
+                    this.#fill(x + dx, y + dy, shape[dy][dx], colorType);
+                }
+            }
+        }
+
+        this.#fillLock = false;
+    }
+
+    drawText(text, mode = 'normal') {
+        while (this.#fillLock) noop();
+        this.#fillLock = true;
+
+        this.#ctx.font = `24px "Noto Sans TC"`;
+        this.#ctx.textAlign = "center";
+        this.#ctx.textBaseline = "middle";
+
+        if (mode === 'normal') {
+            const top = Math.floor((this.#ctx.canvas.height - 80) / 2);
+            this.#ctx.fillStyle = "#f9fafb";
+            this.#ctx.fillRect(0, top, this.#ctx.canvas.width, 80);
+        }
+
+        const textX = this.#ctx.canvas.width / 2;
+        const textY = this.#ctx.canvas.height / 2;
+        this.#ctx.fillStyle = mode === 'normal' ? '#111827' : '#f9fafb';
+        this.#ctx.fillText(text, textX, textY);
+
+        this.#fillLock = false;
+    }
+
+    /**
+     * Clears the canvas.
+     *
+     * @returns {void}
+     */
+    clear() {
+        while (this.#fillLock) noop();
+        this.#fillLock = true;
+        this.#ctx.fillStyle = '#1f2937';
         this.#ctx.clearRect(0, 0, this.#ctx.canvas.width, this.#ctx.canvas.height);
+        this.#ctx.fillRect(0, 0, this.#ctx.canvas.width, this.#ctx.canvas.height);
+        this.#fillLock = false;
+    }
 
-        // Calculate the shape dimensions without 0 columns and rows
-        let minX = drawable[0].length;
-        let minY = drawable.length;
-        let maxX = 0;
-        let maxY = 0;
+    /**
+     * Fills a cell in the specified color at the given position.
+     *
+     * @param {number} x The x position of the cell.
+     * @param {number} y The y position of the cell.
+     * @param {number} color The index of the cell color in {@link Drawable.COLORS}.
+     * @param {number} [colorType=0] The color type of the cell.
+     * @returns {void}
+     */
+    #fill(x, y, color, colorType = 0) {
+        const fillSize = this.cellSize - this.strokeWidth * 2;
+        x = x * this.cellSize + this.strokeWidth;
+        y = y * this.cellSize + this.strokeWidth;
+        this.#ctx.fillStyle = Drawable.COLORS[color - 1][colorType];
+        this.#ctx.fillRect(x, y, fillSize, fillSize);
+    }
+}
 
-        // Find the bounds of the drawable by non-zero values
-        for (let dy = 0; dy < drawable.length; dy++) {
-            for (let dx = 0; dx < drawable[dy].length; dx++) {
-                if (drawable[dy][dx] !== 0) {
-                    minX = Math.min(minX, dx);
-                    minY = Math.min(minY, dy);
-                    maxX = Math.max(maxX, dx);
-                    maxY = Math.max(maxY, dy);
+/**
+ * A playfield of Tetris game.
+ */
+class Playfield extends Drawable {
+    /** @type {HTMLCanvasElement} */
+    canvas;
+
+    /**
+     * The current tetromino.
+     *
+     * @type {{ x: number, y: number, shape: number[][] }}
+     * */
+    #tetromino;
+
+    /**
+     * The ghost tetromino.
+     *
+     * @type {{ x: number, y: number, shape: number[][] }}
+     */
+    #ghost;
+
+    /** @type {number[][]} */
+    #field;
+
+    /**
+     * @param {HTMLCanvasElement} canvas
+     */
+    constructor(canvas) {
+        super(20, 10, canvas);
+        this.canvas = canvas;
+    }
+
+    /**
+     * @param {{ x: number, y: number, shape: number[][] }} tetromino The current tetromino.
+     */
+    set tetromino(tetromino) {
+        this.#tetromino = tetromino;
+        this.render();
+    }
+
+    /**
+     * @param {{ x: number, y: number, shape: number[][] }} ghost The ghost tetromino.
+     */
+    set ghost(ghost) {
+        this.#ghost = ghost;
+        this.render();
+    }
+
+    /**
+     * @param {number[][]} field The playfield array.
+     */
+    set field(field) {
+        this.#field = field;
+        this.render();
+    }
+
+    /**
+     * Renders the playfield.
+     *
+     * @returns {void}
+     */
+    render() {
+        this.clear();
+        if (this.#field) {
+            this.draw(0, 0, this.#field, 0);
+        }
+        if (this.#tetromino) {
+            this.draw(this.#tetromino.x, this.#tetromino.y, this.#tetromino.shape, 0);
+        }
+        if (this.#ghost) {
+            this.draw(this.#ghost.x, this.#ghost.y, this.#ghost.shape, 1);
+        }
+    }
+}
+
+/**
+ * This class is responsible for interacting with the Tetris server and rendering
+ * the game state to the web page.
+ */
+class TetrisClient {
+    /** @type {WebSocket} */
+    #server;
+
+    /** @type {Playfield} */
+    #playfield;
+
+    /** @type {Drawable} */
+    #hold;
+
+    /** @type {Drawable} */
+    #next;
+
+    /** @type {HTMLParagraphElement} */
+    #score;
+
+    /** @type {HTMLParagraphElement} */
+    #level;
+
+    /** @type {boolean} */
+    #isPlaying = false;
+
+    /** @type {function} */
+    #boundBlurHandler;
+
+    /** @type {function} */
+    #boundKeyDownHandler;
+
+    /** @type {function} */
+    #boundKeyUpHandler;
+
+    /**
+     * @param {HTMLCanvasElement} playfield The canvas to draw the main playfield on.
+     * @param {HTMLCanvasElement} hold The canvas to draw the hold tetromino on.
+     * @param {HTMLCanvasElement} next The canvas to draw the next tetromino on.
+     * @param {HTMLParagraphElement} score The element to display the score in.
+     * @param {HTMLParagraphElement} level The element to display the level in.
+     */
+    constructor(playfield, hold, next, score, level) {
+        this.#playfield = new Playfield(playfield);
+        this.#hold = new Drawable(4, 4, hold);
+        this.#next = new Drawable(4, 4, next);
+        this.#score = score;
+        this.#level = level;
+    }
+
+    /**
+     * Connects to the Tetris server.
+     *
+     * @param {string} url The URL of the Tetris server.
+     * @returns {void}
+     */
+    connect(url) {
+        this.#server = new WebSocket(url);
+        this.#server.onmessage = this.#onmessage.bind(this);
+        this.#server.onopen = () => {
+            this.#playfield.drawText('Click to start', 'text');
+            this.#playfield.canvas.addEventListener('click', () => this.start(), {once: true});
+        };
+    }
+
+    /**
+     * Starts the game.
+     *
+     * @returns {void}
+     */
+    start() {
+        this.#send('start');
+    }
+
+    /**
+     * Sends a message in the expected format to the server.
+     *
+     * @param {string} action The action of the message.
+     * @param {object} [data={}] The data to send.
+     * @returns {void}
+     */
+    #send(action, data = {}) {
+        this.#server.send(JSON.stringify({action, ...data}));
+    }
+
+    /**
+     * Handles a message received from the server.
+     *
+     * @param {MessageEvent} event The message event.
+     * @returns {void}
+     */
+    #onmessage(event) {
+        const message = JSON.parse(event.data);
+        switch (message.type) {
+            case 'start':
+                this.#playfield.clear();
+                this.#boundBlurHandler = this.#onblur.bind(this);
+                this.#boundKeyUpHandler = this.#onkeyup.bind(this);
+                this.#boundKeyDownHandler = this.#onkeydown.bind(this);
+                window.addEventListener('blur', this.#boundBlurHandler);
+                document.addEventListener('keyup', this.#boundKeyUpHandler);
+                document.addEventListener('keydown', this.#boundKeyDownHandler);
+                this.#isPlaying = true;
+                break;
+            case 'hold':
+                this.#hold.clear();
+                this.#hold.center(message.data);
+                break;
+            case 'next':
+                this.#next.clear();
+                this.#next.center(message.data);
+                break;
+            case 'field':
+                this.#playfield.field = message.data;
+                break;
+            case 'tetromino':
+                this.#playfield.tetromino = message.data;
+                break;
+            case 'ghost':
+                this.#playfield.ghost = message.data;
+                break;
+            case 'status':
+                const {score, level} = message.data;
+                this.#score.textContent = score.toString();
+                this.#level.textContent = level.toString();
+                break;
+            case 'pause':
+                const resume = () => {
+                    document.removeEventListener('click', resume);
+                    document.removeEventListener('keydown', resume);
+                    this.#send('resume');
                 }
-            }
-        }
-
-        // Remove the 0 columns
-        let trimmedDrawable = drawable.map(row => row.slice(minX, maxX + 1));
-
-        // Remove the 0 rows
-        const trimmedHeight = maxY - minY + 1;
-        trimmedDrawable = trimmedDrawable.slice(minY, minY + trimmedHeight);
-
-        // Calculate the centering offsets
-        const canvasSize = 120;
-        let cellSize = 30;
-        let strokeWidth = 1;
-
-        let x = Math.floor((canvasSize - trimmedDrawable[0].length * cellSize) / 2);
-        let y = Math.floor((canvasSize - trimmedDrawable.length * cellSize) / 2);
-
-        // Check if the shape is vertically or horizontally 4
-        if (trimmedDrawable.length === 4 || trimmedDrawable[0].length === 4) {
-            const shrinkSize = 90;
-            cellSize = shrinkSize / Math.max(trimmedDrawable.length, trimmedDrawable[0].length);
-            const shrinkOffset = (canvasSize - shrinkSize) / 2;
-            x = shrinkOffset + Math.ceil((shrinkSize - trimmedDrawable[0].length * cellSize) / 2);
-            y = shrinkOffset + Math.ceil((shrinkSize - trimmedDrawable.length * cellSize) / 2);
-        }
-
-        const pos = (n) => n + strokeWidth;
-        const size = cellSize - strokeWidth * 2;
-
-        // Draw the centered shape
-        for (let dy = 0; dy < trimmedDrawable.length; dy++) {
-            for (let dx = 0; dx < trimmedDrawable[dy].length; dx++) {
-                if (trimmedDrawable[dy][dx] !== 0) {
-                    this.#ctx.fillStyle = Playfield.colors[trimmedDrawable[dy][dx] - 1];
-                    this.#ctx.fillRect(pos(x + dx * cellSize), pos(y + dy * cellSize), size, size);
-                }
-            }
+                document.addEventListener('click', resume, {once: true});
+                document.addEventListener('keydown', resume, {once: true});
+                this.#isPlaying = false;
+                this.#playfield.drawText('Paused');
+                break;
+            case 'resume':
+                this.#isPlaying = true;
+                break;
+            case 'game_over':
+                window.removeEventListener('blur', this.#boundBlurHandler);
+                document.removeEventListener('keyup', this.#boundKeyUpHandler);
+                document.removeEventListener('keydown', this.#boundKeyDownHandler);
+                this.#playfield.drawText('Game Over');
+                this.#send('game_over'); // ack
+                break;
         }
     }
-}
 
-function start() {
-    server.send(JSON.stringify({type: "start"}));
-    document.getElementById("playfield").removeEventListener("click", start);
-}
+    #onblur() {
+        if (!this.#isPlaying) return;
+        this.#send('pause');
+    }
 
-function keydown(event) {
-    switch (event.key) {
-        case "c":
-            server.send(JSON.stringify({type: "hold"}));
-            break;
-        case "ArrowLeft":
-            server.send(JSON.stringify({type: "left"}));
-            break;
-        case "ArrowRight":
-            server.send(JSON.stringify({type: "right"}));
-            break;
-        case "ArrowDown":
-            server.send(JSON.stringify({type: "down", reset: false}));
-            break;
-        case "ArrowUp":
-            server.send(JSON.stringify({type: "rotate"}));
+    /**
+     * Handles a keyup event.
+     *
+     * @param {KeyboardEvent} event The keyup event.
+     * @returns {void}
+     */
+    #onkeyup(event) {
+        if (!this.#isPlaying) return;
+
+        switch (event.key) {
+            case 'ArrowDown':
+                this.#send('reset_drop');
+                break;
+        }
+    }
+
+    /**
+     * Handles a keydown event.
+     *
+     * @param {KeyboardEvent} event The keydown event.
+     * @returns {void}
+     */
+    #onkeydown(event) {
+        if (!this.#isPlaying) return;
+
+        switch (event.key) {
+            case 'ArrowLeft':
+                this.#send('move_left');
+                break;
+            case 'ArrowRight':
+                this.#send('move_right');
+                break;
+            case 'ArrowUp':
+                this.#send('rotate');
+                break;
+            case 'ArrowDown':
+                this.#send('soft_drop');
+                break;
+            case 'c':
+                this.#send('hold');
+                break;
+            case 'x':
+                this.#send('rotate_ccw');
+                break;
+            case ' ':
+                this.#send('hard_drop');
+                break;
+            case 'p':
+                this.#send('pause');
+                break;
+        }
     }
 }
 
-function keyup(event) {
-    switch (event.key) {
-        case "ArrowDown":
-            server.send(JSON.stringify({type: "down", reset: true}));
-            break;
-    }
+/**
+ * Infers the default game server URL from the current page URL.
+ *
+ * @returns {string} The websocket server URL.
+ */
+function defaultServerURL() {
+    const {protocol, host, pathname} = location;
+    const path = pathname.substring(0, pathname.lastIndexOf('/') + 1);
+    return `${protocol === 'https:' ? 'wss:' : 'ws:'}//${host}${path}server.php`;
 }
 
-const server = new WebSocket(WEBSOCKET_URL);
+/**
+ * Initializes the Tetris client.
+ */
+function init() {
+    const playfield = document.getElementById('playfield');
+    const tetris = new TetrisClient(
+        playfield,
+        document.getElementById('hold'),
+        document.getElementById('next'),
+        document.getElementById('score'),
+        document.getElementById('level'),
+    );
 
-const playfield = new Playfield(document.getElementById("playfield"));
-const hold = new TetrominoView(document.getElementById("hold"));
-const next = new TetrominoView(document.getElementById("next"));
-
-server.onmessage = (event) => {
-    const data = JSON.parse(event.data);
-
-    switch (data.type) {
-        case "start":
-            playfield.clear();
-            document.addEventListener("keydown", keydown);
-            document.addEventListener("keyup", keyup);
-            break;
-        case "status":
-            document.getElementById("score").textContent = data.score.toString();
-            document.getElementById("level").textContent = data.level.toString();
-            break;
-        case "hold":
-            if (data.shape.length) {
-                hold.draw(data.shape);
-            }
-            break;
-        case "next_tetromino":
-            next.draw(data.shape);
-            break;
-        case "playfield":
-            playfield.matrix = data.field;
-            playfield.render();
-            break;
-        case "tetromino":
-            playfield.currentTetromino = {
-                shape: data.shape,
-                x: data.x,
-                y: data.y,
-            }
-            playfield.render();
-            break;
-        case "over":
-            document.removeEventListener("keydown", keydown);
-            document.removeEventListener("keyup", keyup);
-            playfield.drawGameOver();
-            server.send(JSON.stringify({type: "ack over"}));
-            break;
-    }
+    tetris.connect(SERVER_URL || defaultServerURL());
 }
 
-playfield.drawStartScreen();
-document.getElementById("playfield").addEventListener("click", start);
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+} else {
+    init();
+}
