@@ -499,7 +499,7 @@
          */
         public function hold(): bool
         {
-            if (!$this->is_playing || $this->is_hold_locked) {
+            if ($this->is_hold_locked) {
                 return false;
             }
 
@@ -527,9 +527,6 @@
          */
         public function move_left(): bool
         {
-            if (!$this->is_playing) {
-                return false;
-            }
             return $this->move(-1, 0);
         }
 
@@ -540,9 +537,6 @@
          */
         public function move_right(): bool
         {
-            if (!$this->is_playing) {
-                return false;
-            }
             return $this->move(1, 0);
         }
 
@@ -554,9 +548,6 @@
          */
         public function rotate(bool $clockwise): bool
         {
-            if (!$this->is_playing) {
-                return false;
-            }
             $temp = Tetromino::rotate($this->current, $clockwise);
             if ($this->playfield->is_collided($temp)) {
                 return false;
@@ -572,9 +563,6 @@
          */
         public function soft_drop(): bool
         {
-            if (!$this->is_playing) {
-                return false;
-            }
             $this->drop_interval = self::GRAVITY[$this->level];
             return true;
         }
@@ -586,9 +574,6 @@
          */
         public function hard_drop(): bool
         {
-            if (!$this->is_playing) {
-                return false;
-            }
             while ($this->drop()) {
                 continue;
             }
@@ -602,9 +587,6 @@
          */
         public function reset_drop_interval(): bool
         {
-            if (!$this->is_playing) {
-                return false;
-            }
             $this->drop_interval = self::calculate_drop_interval($this->level);
             return true;
         }
@@ -822,6 +804,9 @@
      */
     function dispatch_game_action(TetrisGame $game, string $action): null|bool
     {
+        if (!$game->is_playing) {
+            return false;
+        }
         return match ($action) {
             "hold" => $game->hold(),
             "move_left" => $game->move_left(),
