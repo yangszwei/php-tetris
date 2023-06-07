@@ -2,74 +2,72 @@
     include "lib/tetris.php";
     include "lib/websocket.php";
 
-    $config = parse_ini_file("config.ini", true);
-
-    $server = new WebSocket($config["server"]["address"], $config["server"]["port"]);
+    /** The application configuration. */
+    $CONFIG = parse_ini_file('config.ini', true);
+    if (!$CONFIG) {
+        die('Error: Failed to load config.ini.');
+    }
 
     /**
-     * @var TetrisGame[] $games
+     * @var TetrisGame[] $games An associative array of games, indexed by their client ids.
      */
     $games = array();
 
-    $start_time = microtime(true);
+    /**
+     * The WebSocket server.
+     */
+    $server = new WebSocket($CONFIG['server']['address'], $CONFIG['server']['port']);
 
-    $server->on_open = function (Socket $socket, string $id) use ($server) {
-        global $games;
+    // Creates a game instance for the new client.
+    $server->on_open = function (Socket $socket, string $id) use (&$games): void {
         $games[$id] = new TetrisGame();
     };
 
-    $server->on_message = function (Socket $socket, string $id, string $message) use ($server) {
-        global $games;
-
+    // Handles the client's messages.
+    $server->on_message = function (Socket $socket, string $id, string $message) use (&$games, $server): void {
         $data = json_decode($message, true);
-        if ($data === null) return;
+        if (!is_array($data)) return;
 
-        switch ($data["type"]) {
+        switch ($data['action']) {
             case "start":
                 $games[$id]->start();
                 $games[$id]->is_playing = true;
-                $server->send($id, json_encode(["type" => "start"]));
+                $server->send($id, game_message('start'));
                 break;
-            case "hold":
-                $games[$id]->hold();
-                break;
-            case "left":
-                $games[$id]->move_left();
-                break;
-            case "right":
-                $games[$id]->move_right();
-                break;
-            case "down":
-                if ($data["reset"] === true) {
-                    $games[$id]->reset_drop_interval();
-                } else {
-                    $games[$id]->soft_drop();
-                }
-                break;
-            case "rotate":
-                $games[$id]->rotate(true);
-                break;
-            case "ack over":
+            case "pause":
                 $games[$id]->is_playing = false;
+                $server->send($id, game_message('pause')); // ack
+                break;
+            case "resume":
+                $games[$id]->reset();
+                $games[$id]->is_playing = true;
+                $server->send($id, game_message('resume')); // ack
+                break;
+            case "reset":
+                $games[$id]->reset();
+                break;
+            case "game_over":
+                $games[$id]->is_playing = false;
+                break;
+            default:
+                dispatch_game_action($games[$id], $data['action']);
                 break;
         }
     };
 
-    $server->on_tick = function () {
-        global $games, $server;
-
+    // Updates the game state and sends it to the client.
+    $server->on_tick = function () use (&$games, $server): void {
         foreach ($games as $id => $game) {
-            if (!$game->is_playing) continue;
             foreach ($game->update() as $update) {
-                $server->send($id, json_encode($update));
+                $server->send($id, $update);
             }
         }
     };
 
-    $server->on_closed = function (string $id) use (&$games) {
-        if (isset($games[$id])) {
-            unset($games[$id]);
-        }
+    // Removes the game instance for the closed client.
+    $server->on_closed = function (string $id) use (&$games): void {
+        unset($games[$id]);
     };
 
+    // Starts the server.
     $server->run();

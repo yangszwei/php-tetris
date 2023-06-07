@@ -82,6 +82,37 @@
             $updated->is_updated = true;
             return $updated;
         }
+
+        /**
+         * Creates a new tetromino shape array without empty rows and columns.
+         * This is useful when the tetromino position is relative.
+         *
+         * @param number[][] $shape The shape to trim.
+         * @return number[][] The trimmed shape.
+         */
+        public static function trim(array $shape): array
+        {
+            $top = count($shape);
+            $left = count($shape[0]);
+            $bottom = 0;
+            $right = 0;
+
+            for ($y = 0; $y < count($shape); $y++) {
+                for ($x = 0; $x < count($shape[$y]); $x++) {
+                    if ($shape[$y][$x] !== 0) {
+                        $top = min($top, $y);
+                        $left = min($left, $x);
+                        $bottom = max($bottom, $y);
+                        $right = max($right, $x);
+                    }
+                }
+            }
+
+            return array_map(
+                fn($row) => array_slice($row, $left, $right - $left + 1),
+                array_slice($shape, $top, $bottom - $top + 1)
+            );
+        }
     }
 
     /**
@@ -549,6 +580,22 @@
         }
 
         /**
+         * Drops the current tetromino to the bottom of the playfield.
+         *
+         * @return bool Whether the tetromino was dropped successfully.
+         */
+        public function hard_drop(): bool
+        {
+            if (!$this->is_playing) {
+                return false;
+            }
+            while ($this->drop()) {
+                continue;
+            }
+            return true;
+        }
+
+        /**
          * Resets the drop interval to respective value of the current level.
          *
          * @return bool Whether the drop interval was reset successfully.
@@ -562,16 +609,31 @@
             return true;
         }
 
-        public function update(): array|bool
+        /**
+         * Resets the special statuses of the game.
+         *
+         * @return void
+         */
+        public function reset(): void
+        {
+            $this->reset_drop_interval();
+        }
+
+        /**
+         * Updates the game status.
+         *
+         * @return string[] The game update messages.
+         */
+        public function update(): array
         {
             if (!$this->is_playing) {
-                return false;
+                return [];
             }
 
             $updates = array();
 
             if ($this->is_game_over) {
-                $updates[] = ["type" => "game_over"];
+                $updates[] = game_message("game_over");
                 return $updates;
             }
 
@@ -587,46 +649,44 @@
             }
 
             if ($this->playfield->is_updated) {
-                $updates[] = [
-                    "type" => "playfield",
-                    "field" => array_slice($this->playfield->field(), $this->playfield->hidden_rows())
-                ];
+                $field = array_slice($this->playfield->field(), $this->playfield->hidden_rows());
+                $updates[] = game_message("field", $field);
                 $this->playfield->is_updated = false;
             }
 
             if ($this->current->is_updated) {
-                $updates[] = [
-                    "type" => "tetromino",
+                $updates[] = game_message("tetromino", [
                     "x" => $this->current->x,
                     "y" => $this->current->y,
                     "shape" => $this->current->shape
-                ];
+                ]);
+
+                $ghost = $this->ghost();
+                $updates[] = game_message("ghost", [
+                    "x" => $ghost->x,
+                    "y" => $ghost->y,
+                    "shape" => $ghost->shape
+                ]);
+
                 $this->current->is_updated = false;
             }
 
             if ($this->is_hold_changed) {
-                $updates[] = [
-                    "type" => "hold",
-                    "shape" => $this->hold
-                ];
+                $updates[] = game_message("hold", Tetromino::trim($this->hold));
                 $this->is_hold_changed = false;
             }
 
             if ($this->is_tetromino_changed) {
-                $updates[] = [
-                    "type" => "next_tetromino",
-                    "shape" => $this->bag->next()
-                ];
+                $updates[] = game_message("next", Tetromino::trim($this->bag->next()));
                 $this->is_tetromino_changed = false;
             }
 
             if ($this->is_status_updated) {
-                $updates[] = [
-                    "type" => "status",
+                $updates[] = game_message("status", [
                     "level" => $this->level,
                     "score" => $this->score,
                     "cleared_rows" => $this->cleared_rows
-                ];
+                ]);
                 $this->is_status_updated = false;
             }
 
@@ -694,6 +754,22 @@
         }
 
         /**
+         * Calculates the ghost tetromino of the current tetromino.
+         *
+         * @return Tetromino The ghost tetromino.
+         */
+        private function ghost(): Tetromino
+        {
+            $ghost = clone $this->current;
+            $temp = clone $ghost;
+            while (!$this->playfield->is_collided($temp)) {
+                $ghost = $temp;
+                $temp = Tetromino::move($ghost, 0, 1);
+            }
+            return $ghost;
+        }
+
+        /**
          * Clears all full rows from the playfield.
          *
          * @return int The number of rows cleared.
@@ -735,4 +811,38 @@
         {
             return 1 / (self::GRAVITY[min($level, count(self::GRAVITY) - 1)] * 60);
         }
+    }
+
+    /**
+     * Dispatches a game action from the given action string.
+     *
+     * @param TetrisGame $game The game.
+     * @param string $action The action string.
+     * @return null|bool Whether the action was successful.
+     */
+    function dispatch_game_action(TetrisGame $game, string $action): null|bool
+    {
+        return match ($action) {
+            "hold" => $game->hold(),
+            "move_left" => $game->move_left(),
+            "move_right" => $game->move_right(),
+            "rotate" => $game->rotate(true),
+            "rotate_ccw" => $game->rotate(false),
+            "soft_drop" => $game->soft_drop(),
+            "hard_drop" => $game->hard_drop(),
+            "reset_drop" => $game->reset_drop_interval(),
+            default => false,
+        };
+    }
+
+    /**
+     * Creates a game message to send to the client.
+     *
+     * @param string $type The message type.
+     * @param array|null $data The message data.
+     * @return string The game message.
+     */
+    function game_message(string $type, array|null $data = null): string
+    {
+        return json_encode(["type" => $type, "data" => $data]);
     }
