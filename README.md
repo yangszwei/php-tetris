@@ -45,11 +45,11 @@ port of the websocket server in the server section of `config.ini`.
 C:\xampp\php\php.exe C:\xampp\htdocs\php-tetris\server.php
 ```
 
-Set `WEBSOCKET_URL` at line 3 of `index.js` to `ws://localhost:8000/` or the
+Set `SERVER_URL` at line 4 of `index.js` to `ws://localhost:8000/` or the
 address you set in `config.ini`.
 
 ```javascript
-const WEBSOCKET_URL = 'ws://localhost:8000/';
+const SERVER_URL = "ws://localhost:8000/";
 ```
 
 The game will be available at http://localhost/php-tetris/.
