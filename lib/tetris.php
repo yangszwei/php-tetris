@@ -349,6 +349,7 @@
         {
             array_splice($this->field, $y + $this->hidden_rows, 1);
             array_unshift($this->field, array_fill(0, $this->columns(), 0));
+            $this->is_updated = true;
         }
 
         /**
@@ -620,14 +621,7 @@
             }
 
             if ($this->is_drop_interval_elapsed()) {
-                $is_dropped = $this->drop();
-                if (!$is_dropped) {
-                    $this->is_hold_locked = false;
-                    $rows_cleared = $this->clear_full_rows();
-                    if ($rows_cleared > 0) {
-                        $this->update_status($rows_cleared);
-                    }
-                }
+                $this->drop();
             }
 
             if ($this->playfield->is_updated) {
@@ -724,11 +718,16 @@
             $is_moved = $this->move(0, 1);
             if (!$is_moved) {
                 $this->playfield->merge($this->current);
+                $rows_cleared = $this->clear_full_rows();
+                if ($rows_cleared > 0) {
+                    $this->update_status($rows_cleared);
+                }
                 $this->current = $this->bag->get_next($this->playfield);
                 $this->is_tetromino_changed = true;
                 if ($this->playfield->is_collided($this->current)) {
                     $this->is_game_over = true;
                 }
+                $this->is_hold_locked = false;
                 return false;
             }
             $this->last_drop_time = microtime(true);
@@ -766,7 +765,6 @@
                 }
             }
             if ($cleared_rows > 0) {
-                $this->playfield->is_updated = true;
                 $this->cleared_rows += $cleared_rows;
             }
             return $cleared_rows;
